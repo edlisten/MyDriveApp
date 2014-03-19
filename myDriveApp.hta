@@ -1,0 +1,233 @@
+<!-- HTA script to allow machines that are not joined to a domain to access   
+    Windows file shares with domain credentials. It will atomatically prepend the   
+    domain to the username and then map several drives. If a drive is already   
+    mapped, it is disconnected and then mapped for the current user.  
+       http://www.vaughnemiller.com/2012/08/16/hta-script-for-mapping-network-drives/  
+       https://github.com/vmiller/ConnectDrives  
+      
+    Version 1.0.2 Written by Vaughn Miller 7/20/2012   
+       Version 1.0.3 Modified by Bjorn Behrendt 1/30/14 ~ http://www.edlisten.com  
+           ~ Removed looped mapped drive.  Was unneeded for my own situation but probably should get put back in  
+           ~ Added home folder mapping. This will map to a folder that matches to the username  
+           ~ Now removes all current mapped drives, even if they are not defined in this script. This solves a multiple connections error if there is a current mapped drive.  
+             
+              
+    ---------------------------------------------------------------------------------->  
+   
+   
+ <HTML>  
+ <HEAD>  
+ <TITLE>Connect Network Drives</title>  
+ <HTA:APPLICATION  
+    ApplicationName="MapDrives.HTA"  
+    SingleInstance="Yes"  
+    WindowsState="Normal"  
+    Scroll="No"  
+       ICON="computer.ico"  
+    Navigable="Yes"  
+    MaximizeButton="No"  
+    SysMenu="Yes"  
+    Caption="Yes"  
+ ></HEAD>  
+   
+ <SCRIPT LANGUAGE="VBScript">  
+   
+ ' *** Define Drive Mappings ***  
+ dim arrDrives(1,2)  
+ intMaxdrives = 1  
+   
+ arrDrives(0,0) = "K:"  
+ arrDrives(0,1) = "\\server\TShare"  
+ arrDrives(0,2) = "TShare"  
+   
+ arrDrives(1,0) = "W:"  
+ arrDrives(1,1) = "\\server\homefolders\"  
+ arrDrives(1,2) = "Username" 'Not used in version 1.0.3  
+   
+ ' *** End Drive Map Definitions ***  
+   
+ strDOMAIN = "YourDomainName\" 'Domain to prepend to the username  
+ msgSuccess = "The following drives have mapped correctly" & vbCrLf & "K: = CadShare" & vbCrLf & "W: = " & strUsr2 & "'s CAD Folder"  
+ msgError = "An error occurred while mapping: " & Err2 & vbCrLf & vbCrLf & "Please check your password" & vbCrLf & "If that does not work please restart the computer." & vbCrLf & "If it still does not work after a restart, have your teacher submit a help desk ticket."  
+   
+   
+   
+ Sub Window_Onload  
+  '# Size Window  
+  sHorizontal = 440  
+  sVertical = 220  
+  Window.resizeTo sHorizontal, sVertical  
+  '# Get Monitor Details  
+  Set objWMIService = GetObject _  
+   ("winmgmts:root\cimv2")  
+  intHorizontal = sHorizontal *2  
+  intVertical = sVertical *2  
+  Set colItems = objWMIService.ExecQuery( _  
+   "Select ScreenWidth, ScreenHeight from" _  
+   & " Win32_DesktopMonitor", , 48)  
+  For Each objItem In colItems  
+   sWidth= objItem.ScreenWidth  
+   sHeight = objItem.ScreenHeight  
+   If sWidth > sHorizontal _  
+    then intHorizontal = sWidth  
+   If sHeight > sVertical _  
+    then intVertical = sHeight  
+  Next  
+  Set objWMIService = Nothing  
+  '# Center window on the screen  
+  intLeft = (intHorizontal - sHorizontal) /2  
+  intTop = (intVertical - sVertical) /2  
+  Window.moveTo intLeft, intTop  
+  '# default window content  
+  window.location.href="#Top"  
+ End Sub  
+   
+   
+ Sub RunScript  
+   on Error Resume Next  
+   
+   minUSRnamelength = 2  
+   minPASSwrdlength = 3  
+   
+   strUsr = UsrnameArea.Value  
+   strPas = PasswordArea.Value  
+   strUsr2 = strUsr  
+   
+   Set objNetwork = CreateObject("WScript.Network")  
+   Set oShell = CreateObject("Shell.Application")  
+     
+   
+   If Len(strUsr) >= minUSRnamelength then  
+    strUsr = strDOMAIN & UCase(strUsr) '<--- adds the domain before the username  
+   
+    if Len(strPas) >= minPASSwrdlength Then  
+      Call ClearDrives ' Delete existing mappings if they exist  
+        
+            '***** Begin Drive mapping *****  
+        
+       Err.Clear  
+                Err2.Clear  
+       objNetwork.MapNetworkDrive arrDrives(0,0), arrDrives(0,1), False, strUsr, strPas  
+       If Err.Number = 0 Then  
+         oShell.NameSpace(arrDrives(0,0)).Self.Name = arrDrives(0,2)  
+                 else  
+                     Err2 = arrDrives(0,2) & ", " & Err2   
+       End If   
+                  
+                Err.Clear  
+                netLocation = arrDrives(1,1) & strUsr2  
+       objNetwork.MapNetworkDrive arrDrives(1,0), netLocation, False, strUsr, strPas  
+       If Err.Number = 0 Then  
+                  oShell.NameSpace(arrDrives(1,0)).Self.Name = strUsr2  
+                else  
+                 Err2 = strUsr2 & ", " & Err2   
+       End If   
+           
+                If Err.Number = 0 Then  
+                     msgbox(msgSuccess)  
+                else  
+                     msgbox(msgError)  
+                End If  
+   
+   
+                        
+      '***** End Drive Mapping *****  
+              
+              
+        
+      ELSE   
+       Msgbox chr(34) & strPas & """ is an incorrect password !"  
+       Exit Sub  
+      End If  
+   ELSE   
+    Msgbox chr(34) & strUsr & """ is an incorrect Username !"  
+    Exit Sub  
+   End If  
+   ' Clean up the objects before exiting  
+   Set oShell = Nothing  
+   Set objNetwork = Nothing  
+   Self.Close()  
+ End Sub  
+   
+   
+ Sub ClearDrives   ' Sub Routine to remove the drives if they are already mapped      
+ SET objNetwork = CREATEOBJECT("Wscript.Network")  
+ SET colDrives = objNetwork.EnumNetworkDrives  
+ FOR i = 0 to colDrives.Count-1 Step 2  
+      ' Force Removal of network drive and remove from user profile   
+      ' objNetwork.RemoveNetworkDrive strName, [bForce], [bUpdateProfile]  
+      objNetwork.RemoveNetworkDrive colDrives.Item(i),TRUE,TRUE  
+ NEXT  
+   
+   
+ ' on Error Resume Next  
+ ' Set objNetwork = CreateObject("WScript.Network")  
+ '   
+ '  
+ ' '***** Begin section to delete drive mappings ***  
+ ' Set AllDrives = objNetwork.EnumNetworkDrives      
+ ' For n = 0 To intMaxDrives   'Loop through our array of drives   
+ '   For i = 0 To AllDrives.Count - 1 Step 2   
+ '    If AllDrives.Item(i) = arrDrives(n,0) Then AlreadyConnected = True   
+ '   Next      
+ '   If AlreadyConnected = True then   
+ '    objNetwork.RemoveNetworkDrive arrDrives(n,0), True, True  
+ '   End If   
+ ' Next    
+ ' 'msgbox ("disconnected1")  
+  sbWait(3)  
+ ' 'msgbox ("d-end")  
+ ' '***** End section to delete drive mappings   
+   
+  End Sub  
+   
+   
+ Sub DisconnectDrives ' Calls ClearDrives subroutine and then closes the window  
+     Call ClearDrives  
+   Set oShell = Nothing  
+   Set objNetwork = Nothing  
+     Self.close()  
+ End Sub  
+   
+ Sub sbWait(iSeconds)  
+   Dim oShell : Set oShell = CreateObject("WScript.Shell")  
+   oShell.run "cmd /c ping localhost -n " & iSeconds,0,True  
+ End Sub       
+   
+   
+ Sub CancelScript  
+   Set oShell = Nothing  
+   Set objNetwork = Nothing  
+   Self.Close()  
+ End Sub  
+   
+ </SCRIPT>  
+   
+   
+ <BODY STYLE="font:14 pt arial; color:black;">  
+ <a name="Top"></a><CENTER>  
+  <table border="0" cellpadding="0" cellspacing="0"><font size="2" color="black" face="Arial">  
+   <tr>  
+    <td colspan="2" height="50" valign="top"><p style="text-align: center;">  
+                Your School<br />  
+                The Lab</p></td>  
+   </tr>  
+   <tr>  
+      <tr>  
+    <td height="30"><p align="right">Your Username</p></td>  
+    <td height="30">&nbsp;&nbsp; <input type="text" name="UsrnameArea" size="30"></td></tr>  
+   <tr>  
+    <td height="30"><p align="right">Password</p></td>  
+    <td height="30">&nbsp;&nbsp; <input type="password" name="PasswordArea" size="30"></td></tr>  
+  </table><BR>  
+ <HR color="#0000FF">  
+  <Input id=runbutton class="button" type="button" value=" Log On " name="run_button" onClick="RunScript">  
+   &nbsp;  
+  <Input id=runbutton class="button" type="button" value=" Log Off " name="dis_button" onClick="DisconnectDrives">  
+   &nbsp;  
+  <Input id=runbutton class="button" type="button" value="Cancel" name="cancel_button" onClick="CancelScript">  
+  <br/>  
+  </CENTER>  
+ </BODY>  
+   
+ </HTML>  
